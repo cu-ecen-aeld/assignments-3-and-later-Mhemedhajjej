@@ -1,4 +1,9 @@
 #include "systemcalls.h"
+#include <sys/types.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <fcntl.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,7 +21,13 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
+    int result = system(cmd);
+    if (result == -1 || ((WIFEXITED(result) && WEXITSTATUS(result) != 0))) {
+        // system call failed or command returned a non-zero exit status
+        return false;
+    }
 
+    // system call succeeded and command returned a zero exit status
     return true;
 }
 
@@ -58,10 +69,42 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    
+        if (command[0] == NULL || command[0][0] != '/') {
+                // Invalid command
+                va_end(args);
+                return false;
+        }
+        
+        fflush(stdout);
+        pid_t pid = fork();
+        if (pid == -1) {
+                // Fork failed
+                va_end(args);
+                return false;
+        } else if (pid == 0) {
+                // Child process
+                execv(command[0], command);
+                // If execv returns, it must have failed
+                va_end(args);
+                return false;
+        } else {
+                // Parent process
+                int stat_loc;
+                waitpid(pid, &stat_loc, 0);
+                if (WIFEXITED(stat_loc) && WEXITSTATUS(stat_loc) == 0) {
+                        // Command executed successfully
+                        va_end(args);
+                        return true; 
+                } else {
+                        // Command failed
+                        va_end(args);
+                        return false;
+                }
+        }
 
-    va_end(args);
-
-    return true;
+        va_end(args);
+        return true;
 }
 
 /**
@@ -71,18 +114,18 @@ bool do_exec(int count, ...)
 */
 bool do_exec_redirect(const char *outputfile, int count, ...)
 {
-    va_list args;
-    va_start(args, count);
-    char * command[count+1];
-    int i;
-    for(i=0; i<count; i++)
-    {
-        command[i] = va_arg(args, char *);
-    }
-    command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
+        va_list args;
+        va_start(args, count);
+        char * command[count+1];
+        int i;
+        for(i=0; i<count; i++)
+        {
+                command[i] = va_arg(args, char *);
+        }
+        command[count] = NULL;
+        // this line is to avoid a compile warning before your implementation is complete
+        // and may be removed
+        command[count] = command[count];
 
 
 /*
@@ -92,8 +135,49 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+        bool success = true;
+        pid_t pid;
+        int fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+        if (fd < 0) {
+                // Failed to open file for writing
+                va_end(args);
+                return false;
+        }
+        
+        if (command[0] == NULL || command[0][0] != '/') {
+                // Invalid command
+                close(fd);
+                va_end(args);
+                return false;
+        }
+        fflush(stdout); // Ensure stdout is flushed before redirecting
+        switch (pid = fork()) {
+        case -1: 
+                success = false;
+                break;
+        case 0:
+                if (dup2(fd, 1) < 0) {success = false;}
+                if (success) {
+                        close(fd);
+                        execvp(command[0], command);
+                        success = false;
+                }
+                break;
+        default:
+                // Parent process
+                close(fd);
+                int stat_loc;
+                waitpid(pid, &stat_loc, 0);
+                if (WIFEXITED(stat_loc) && WEXITSTATUS(stat_loc) == 0) {
+                        // Command executed successfully
+                        success = true;
+                } else {
+                        // Command failed
+                        success = false;
+                }
+                break;
+        }
 
-    va_end(args);
-
-    return true;
+        va_end(args);
+        return success;
 }
