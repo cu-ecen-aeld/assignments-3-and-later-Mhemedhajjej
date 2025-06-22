@@ -22,7 +22,7 @@ int main(int argc, char *argv[])
         char *wrtiestr = argv[2];
 
         /* open file with write only, create if nonexistent, truncate to 0 length*/
-        int f = open(filename, O_WRONLY | O_CREAT | O_TRUNC);
+        int f = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (f < 0) {
                 syslog(LOG_ERR, "Error opening file %s: %s", filename, strerror(errno));
                 return 1;
